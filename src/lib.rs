@@ -18,8 +18,12 @@ use unity::prelude::OptionalMethod;
 
 /*
 Analysis
+ClassChangeCheck
 x20 : *Unit - at least in the scope that we want to edit.
 *x19.byte_add(0x10) : *JobData
+LevelReset
+x19 : *Unit
+x20 : *JobData
 
 got the registers we want in ClassChangeCheck().
 */
@@ -52,6 +56,14 @@ fn class_change_check_get_job_data(ctx: &InlineCtx) -> &JobData {
     }
 }
 
+fn level_reset_get_unit(ctx: &InlineCtx) -> &Unit {
+    unsafe { &*(*ctx.registers[19].x.as_ref() as *const Unit) }
+}
+
+fn level_reset_get_job_data(ctx: &InlineCtx) -> &JobData {
+    unsafe { &*(*ctx.registers[20].x.as_ref() as *const JobData) }
+}
+
 fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
     let job_data = class_change_check_get_job_data(ctx);
     let unit = class_change_check_get_unit(ctx);
@@ -60,7 +72,7 @@ fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
         if unit_class.is_high_class() {
             false
         } else if unit_class.is_special_class() {
-            unit.level <= 20
+            unit.level <= 20 && unit.level > 0
         } else {
             //unit_class is low class
             unit.level > 0
@@ -72,14 +84,68 @@ fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
 #[skyline::hook(offset = 0x19C6C6C, inline)]
 pub fn disallow_high_to_low_impl(ctx: &mut InlineCtx) {
     let result = disallow_high_to_low_chck(ctx);
-    unsafe { *ctx.registers[8].w.as_mut() = result as u32 }
+    unsafe { *ctx.registers[8].w.as_mut() = result as u32 };
 }
 
 #[skyline::hook(offset = 0x19C6C34, inline)]
 pub fn disallow_high_to_low_disp(ctx: &mut InlineCtx) {
     let result = disallow_high_to_low_chck(ctx);
     let disp_lv = if result { 1 } else { 99 };
-    unsafe { *ctx.registers[0].w.as_mut() = disp_lv}
+    unsafe { *ctx.registers[0].w.as_mut() = disp_lv };
+}
+
+#[skyline::hook(offset = 0x19C6AD8, inline)]
+pub fn prevent_same_class_change(ctx: &mut InlineCtx) {
+    unsafe { *ctx.registers[8].w.as_mut() = 0 }
+}
+
+#[skyline::hook(offset = 0x19C6A68, inline)]
+pub fn prevent_same_class_change_normal_disp(ctx: &mut InlineCtx) {
+    unsafe { *ctx.registers[0].w.as_mut() = 99 }
+}
+
+#[skyline::hook(offset = 0x19C69C0, inline)]
+pub fn prevent_same_class_change_special_disp(ctx: &mut InlineCtx) {
+    unsafe { *ctx.registers[0].w.as_mut() = 99 }
+}
+
+#[skyline::hook(offset = 0x1A088E4, inline)]
+pub fn disable_level_addition_on_high_class(ctx: &mut InlineCtx) {
+    let w19 = unsafe { *ctx.registers[19].w.as_ref() };
+    unsafe { *ctx.registers[8].w.as_mut() = w19 };
+}
+
+#[skyline::hook(offset = 0x1A3C848, inline)]
+pub fn level_reset(ctx: &mut InlineCtx) {
+    let unit = level_reset_get_unit(ctx);
+    let unit_class = unit.get_job();
+    let job_data = level_reset_get_job_data(ctx);
+    let reset_level = if job_data.is_high_class() {
+        if unit_class.is_high_class() {
+            unit.level
+        } else if unit_class.is_special_class() && unit.level > 20 {
+            unit.level
+        } else {
+            20
+        }
+    } else if job_data.is_low_class() {
+        if unit_class.is_high_class() {
+            1
+        } else if unit_class.is_special_class() {
+            if unit.level <= 20 {
+                unit.level
+            } else {
+                1
+            }
+        } else {
+            // low class
+            unit.level
+        }
+    } else {
+        // Special class
+        unit.level
+    };
+    unsafe { *ctx.registers[25].w.as_mut() = reset_level as u32 };
 }
 
 /// The internal name of your plugin. This will show up in crash logs. Make it 8 characters long at max.
@@ -125,5 +191,10 @@ pub fn main() {
     skyline::install_hooks!(
         disallow_high_to_low_impl,
         disallow_high_to_low_disp,
+        disable_level_addition_on_high_class,
+        level_reset,
+        prevent_same_class_change,
+        prevent_same_class_change_normal_disp,
+        prevent_same_class_change_special_disp,
     );
 }
