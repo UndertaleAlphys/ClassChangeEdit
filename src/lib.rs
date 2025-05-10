@@ -1,5 +1,7 @@
 // Currently needed because we use these functionality, they'll be removable when the Rust language stabilizes them
 #![feature(lazy_cell, ptr_sub_ptr)]
+use std::result;
+
 use engage::gamedata::item::unititem_get_is_drop;
 use engage::gamedata::unit::Unit;
 use engage::gamedata::JobData;
@@ -50,6 +52,36 @@ fn class_change_check_get_job_data(ctx: &InlineCtx) -> &JobData {
     }
 }
 
+fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
+    let job_data = class_change_check_get_job_data(ctx);
+    let unit = class_change_check_get_unit(ctx);
+    let unit_class = unit.get_job();
+    if job_data.is_low_class() {
+        if unit_class.is_high_class() {
+            false
+        } else if unit_class.is_special_class() {
+            unit.level <= 20
+        } else {
+            //unit_class is low class
+            unit.level > 0
+        }
+    } else {
+        unit.level > 0
+    }
+}
+#[skyline::hook(offset = 0x19C6C6C, inline)]
+pub fn disallow_high_to_low_impl(ctx: &mut InlineCtx) {
+    let result = disallow_high_to_low_chck(ctx);
+    unsafe { *ctx.registers[8].w.as_mut() = result as u32 }
+}
+
+#[skyline::hook(offset = 0x19C6C34, inline)]
+pub fn disallow_high_to_low_disp(ctx: &mut InlineCtx) {
+    let result = disallow_high_to_low_chck(ctx);
+    let disp_lv = if result { 1 } else { 99 };
+    unsafe { *ctx.registers[0].w.as_mut() = disp_lv}
+}
+
 /// The internal name of your plugin. This will show up in crash logs. Make it 8 characters long at max.
 #[skyline::main(name = "ClzCgEd")]
 pub fn main() {
@@ -90,5 +122,8 @@ pub fn main() {
     // Do keep in mind that hooks cannot currently be uninstalled, so proceed accordingly.
     //
     // A ``install_hooks!`` variant exists to let you install multiple hooks at once if separated by a comma.
-    skyline::install_hooks!(disallow_high_to_low_impl,);
+    skyline::install_hooks!(
+        disallow_high_to_low_impl,
+        disallow_high_to_low_disp,
+    );
 }
