@@ -1,5 +1,6 @@
 // Currently needed because we use these functionality, they'll be removable when the Rust language stabilizes them
 #![feature(lazy_cell, ptr_sub_ptr)]
+use engage::gamedata::item::unititem_get_is_drop;
 use engage::gamedata::unit::Unit;
 use engage::gamedata::JobData;
 use skyline::hooks::InlineCtx;
@@ -15,23 +16,39 @@ use unity::prelude::OptionalMethod;
 
 /*
 Analysis
-x20 = &Unit - at least in the scope that we want to edit.
-x19.byte_add(0x10) = &JobData
+x20 : *Unit - at least in the scope that we want to edit.
+*x19.byte_add(0x10) : *JobData
 
 got the registers we want in ClassChangeCheck().
 */
-fn class_change_check_get_unit(ctx: &mut InlineCtx) -> &Unit {
+
+trait ClassRank {
+    fn is_low_class(&self) -> bool;
+    fn is_high_class(&self) -> bool;
+    fn is_special_class(&self) -> bool;
+}
+impl ClassRank for JobData {
+    fn is_high_class(&self) -> bool {
+        return self.is_high();
+    }
+    fn is_low_class(&self) -> bool {
+        return self.is_low() && self.max_level == 20;
+    }
+    fn is_special_class(&self) -> bool {
+        return self.is_low() && self.max_level != 20;
+    }
+}
+fn class_change_check_get_unit(ctx: &InlineCtx) -> &Unit {
     unsafe { &*(*ctx.registers[20].x.as_ref() as *const Unit) }
 }
 
-fn class_change_check_get_job_data(ctx: &mut InlineCtx) -> &JobData {
+fn class_change_check_get_job_data(ctx: &InlineCtx) -> &JobData {
     unsafe {
-        let x19 = *ctx.registers[19].x.as_ref() as *const JobData;
-        &*x19.byte_add(0x10)
+        let x19 = *ctx.registers[19].x.as_ref() as *const *const JobData;
+        let job_data_ptr = *x19.byte_add(0x10);
+        &*job_data_ptr
     }
 }
-#[skyline::hook(offset = 0x19C6800)]
-pub fn class_change_check() {}
 
 /// The internal name of your plugin. This will show up in crash logs. Make it 8 characters long at max.
 #[skyline::main(name = "ClzCgEd")]
@@ -73,5 +90,5 @@ pub fn main() {
     // Do keep in mind that hooks cannot currently be uninstalled, so proceed accordingly.
     //
     // A ``install_hooks!`` variant exists to let you install multiple hooks at once if separated by a comma.
-    skyline::install_hooks!(class_change_check);
+    skyline::install_hooks!(disallow_high_to_low_impl,);
 }
