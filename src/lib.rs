@@ -1,12 +1,15 @@
 // Currently needed because we use these functionality, they'll be removable when the Rust language stabilizes them
 #![feature(lazy_cell, ptr_sub_ptr)]
-use std::result;
+use std::env::consts;
 
-use engage::gamedata::item::unititem_get_is_drop;
+use engage::gamedata::item::ItemData;
+use engage::gamedata::skill::SkillData;
 use engage::gamedata::unit::Unit;
-use engage::gamedata::JobData;
+use engage::gamedata::{job, Gamedata, JobData};
 use skyline::hooks::InlineCtx;
+use unity::il2cpp;
 use unity::prelude::OptionalMethod;
+use unity::system::Il2CppString;
 
 // / This is called a proc(edural) macro. You use this to indicate that a function will be used as a hook.
 // /
@@ -81,6 +84,19 @@ fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
         unit.level > 0
     }
 }
+
+fn get_class_learning_skill(job: &JobData) -> String {
+    unsafe {
+        let p_job = job as *const JobData as *const *const Il2CppString;
+        let p_skill_name = *p_job.byte_add(0x110);
+        if p_skill_name == 0 as *const Il2CppString || (*p_skill_name).to_string() == "" {
+            return String::new();
+        } else {
+            (*p_skill_name).to_string()
+        }
+    }
+}
+
 #[skyline::hook(offset = 0x19C6C6C, inline)]
 pub fn disallow_high_to_low_impl(ctx: &mut InlineCtx) {
     let result = disallow_high_to_low_chck(ctx);
@@ -148,6 +164,22 @@ pub fn level_reset(ctx: &mut InlineCtx) {
     unsafe { *ctx.registers[25].w.as_mut() = reset_level as u32 };
 }
 
+#[skyline::hook(offset = 0x1A3C7B0)]
+pub fn class_change(
+    this: &Unit,
+    job_data: &JobData,
+    item_data: &ItemData,
+    method_info: OptionalMethod,
+) {
+    call_original!(this, job_data, item_data, method_info);
+    let current_class = this.get_job();
+    if this.level >= current_class.max_level {
+        if get_class_learning_skill(job_data) != "" {
+            this.learn_job_skill(job_data);
+        }
+    }
+}
+
 /// The internal name of your plugin. This will show up in crash logs. Make it 8 characters long at max.
 #[skyline::main(name = "ClzCgEd")]
 pub fn main() {
@@ -196,5 +228,6 @@ pub fn main() {
         prevent_same_class_change,
         prevent_same_class_change_normal_disp,
         prevent_same_class_change_special_disp,
+        class_change,
     );
 }
