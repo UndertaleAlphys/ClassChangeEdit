@@ -2,6 +2,7 @@
 #![feature(lazy_cell, ptr_sub_ptr)]
 use engage::gamedata::unit::Unit;
 use engage::gamedata::JobData;
+use skyline::hooks::InlineCtx;
 use unity::prelude::OptionalMethod;
 
 // / This is called a proc(edural) macro. You use this to indicate that a function will be used as a hook.
@@ -15,32 +16,20 @@ use unity::prelude::OptionalMethod;
 /*
 Analysis
 x20 = &Unit - at least in the scope that we want to edit.
-x19 = &JobData
+x19.byte_add(0x10) = &JobData
 
 got the registers we want in ClassChangeCheck().
 */
-enum ClassRank {
-    LOW,
-    HIGH,
-    SPECIAL,
+fn class_change_check_get_unit(ctx: &mut InlineCtx) -> &Unit {
+    unsafe { &*(*ctx.registers[20].x.as_ref() as *const Unit) }
 }
 
-trait CanBeRanked {
-    fn get_rank(&self) -> ClassRank;
-}
-
-impl CanBeRanked for JobData {
-    fn get_rank(&self) -> ClassRank {
-        if self.is_high() {
-            ClassRank::HIGH
-        } else if self.is_low() && self.max_level == 20 {
-            ClassRank::LOW
-        } else {
-            ClassRank::SPECIAL
-        }
+fn class_change_check_get_job_data(ctx: &mut InlineCtx) -> &JobData {
+    unsafe {
+        let x19 = *ctx.registers[19].x.as_ref() as *const JobData;
+        &*x19.byte_add(0x10)
     }
 }
-
 #[skyline::hook(offset = 0x19C6800)]
 pub fn class_change_check() {}
 
