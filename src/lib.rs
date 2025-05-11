@@ -75,7 +75,7 @@ fn disallow_high_to_low_chck(ctx: &InlineCtx) -> bool {
         if unit_class.is_high_class() {
             false
         } else if unit_class.is_special_class() {
-            unit.level <= 20 && unit.level > 0
+            unit.level < 20 && unit.level > 0
         } else {
             //unit_class is low class
             unit.level > 0
